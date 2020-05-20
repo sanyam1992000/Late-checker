@@ -13,6 +13,9 @@ class Person(models.Model):
     def __str__(self):
         return self.name
 
+    class Meta:
+        ordering = ['uid']
+
 
 class Gate(models.Model):
     no = models.IntegerField(unique=True)

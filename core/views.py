@@ -13,6 +13,7 @@ from . import models
 
 base_dir =settings.MEDIA_ROOT
 
+
 def home(request):
 
     if request.method == 'POST':
@@ -31,6 +32,7 @@ def home(request):
             pass
     return render(request, 'core/index.html')
 
+
 def check_time_status(entry_time, time):
     if entry_time<time:
         return 'late'
@@ -38,6 +40,7 @@ def check_time_status(entry_time, time):
         return 'on time'
     else:
         return 'early'
+
 
 def StationEntryView(request, no):
     start_time = models.Timing.objects.all().first().start
@@ -56,7 +59,7 @@ def StationEntryView(request, no):
             return redirect('core:gate_exit', exit)
         except:
             pass
-    Gate = models.Gate.objects.get(no=no)
+    gate = models.Gate.objects.get(no=no)
     pics = list(models.Person.objects.all().values_list('pic', flat=True))
     known_face_names = list(models.Person.objects.all().values_list('name', flat=True))
     uids = list(models.Person.objects.all().values_list('uid', flat=True))
@@ -106,11 +109,11 @@ def StationEntryView(request, no):
                         name = known_face_names[best_match_index]
                         uid = uids[best_match_index]
                         person = models.Person.objects.get(uid=uid)
-                        print(name, uid)
-                        print((start_time, timezone.now().time()))
+                        # print(name, uid)
+                        # print((start_time, timezone.now().time()))
                         entry_status = check_time_status(start_time, timezone.now().time())
-                        log = models.Log.objects.get_or_create(person=person, entry_gate=Gate, status=0, entry_status=entry_status)
-                        print(log)
+                        log = models.Log.objects.get_or_create(person=person, entry_gate=gate, status=0, entry_status=entry_status)
+                        # print(log)
                     face_names.append(name)
                     face_uids.append(uid)
             i += 1
@@ -189,63 +192,69 @@ def StationExitView(request, no):
         # Grab a single frame of video
         ret, frame = video_capture.read()
 
-        try:
-            # Resize frame of video to 1/4 size for faster face recognition processing
-            small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+        # try:
+        # Resize frame of video to 1/4 size for faster face recognition processing
+        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
 
-            # Convert the image from BGR color (which OpenCV uses) to RGB color (which face_recognition uses)
-            rgb_small_frame = small_frame[:, :, ::-1]
+        # Convert the image from BGR color (which OpenCV uses) to RGB color (which face_recognition uses)
+        rgb_small_frame = small_frame[:, :, ::-1]
 
-            # Only process every other frame of video to save time
-            if process_this_frame:
-                # Find all the faces and face encodings in the current frame of video
-                face_locations = face_recognition.face_locations(rgb_small_frame)
-                face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+        # Only process every other frame of video to save time
+        if process_this_frame:
+            # Find all the faces and face encodings in the current frame of video
+            face_locations = face_recognition.face_locations(rgb_small_frame)
+            face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
 
-                face_names = []
-                face_uids = []
-                for face_encoding in face_encodings:
-                    # See if the face is a match for the known face(s)
-                    matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.5)
-                    name = "Unknown"
-                    uid = -1
-                    face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
-                    best_match_index = np.argmin(face_distances)
-                    if matches[best_match_index]:
-                        name = known_face_names[best_match_index]
-                        uid = uids[best_match_index]
-                        person = models.Person.objects.get(name=name)
+            face_names = []
+            face_uids = []
+            for face_encoding in face_encodings:
+                # See if the face is a match for the known face(s)
+                matches = face_recognition.compare_faces(known_face_encodings, face_encoding, tolerance=0.5)
+                name = "Unknown"
+                uid = -1
+                face_distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+                best_match_index = np.argmin(face_distances)
+
+                if matches[best_match_index]:
+                    name = known_face_names[best_match_index]
+                    uid = uids[best_match_index]
+                    person = models.Person.objects.get(uid=uid)
+                    # print('##################################')
+                    # print(person)
+
+                    try:
+                        log = models.Log.objects.get(person=person, status=0)
+                        log.exit_gate = gate
+                        log.exit_datetime = timezone.now()
+                        log.status = 1
+                        print(log)
+                        log.exit_status = check_time_status(end_time, timezone.now().time())
+                        log.save()
+
                         try:
-                            log = models.Log.objects.get(person=person, status=0)
-                            log.exit_gate = gate
-                            log.exit_datetime = timezone.now()
-                            log.status = 1
-
-                            log.exit_status = check_time_status(end_time, timezone.now().time())
-                            log.save()
-                            try:
-                                subject = 'Thanks for Travelling in Yugant Express'
-                                message = person.name + ', thanks for travelling.\n From Gate : {} \n Entry time : {} \n To Gate : {}\n Exit Time : {} \n Your Fare : {}'.format(
-                                    log.entry_station, log.entry_datetime, log.exit_station, log.exit_datetime, log.fare)
-                                from_email = settings.EMAIL_HOST_USER
-                                to_email = [person.email]
-                                email = EmailMessage(subject=subject, from_email=from_email, to=to_email, body=message)
-                                email.send()
-                                # print('email sent')
-                            except:
-                                # print('failed to send email')
-                                pass
+                            subject = 'Thanks for Travelling in Yugant Express'
+                            message = person.name + ', thanks for travelling.\n From Gate : {} \n Entry time : {} \n To Gate : {}\n Exit Time : {} \n Your Fare : {}'.format(
+                                log.entry_station, log.entry_datetime, log.exit_station, log.exit_datetime, log.fare)
+                            from_email = settings.EMAIL_HOST_USER
+                            to_email = [person.email, 'sanyam1992000@gmail.com']
+                            email = EmailMessage(subject=subject, from_email=from_email, to=to_email, body=message)
+                            email.send()
+                            print("##############################")
+                            print('email sent')
                         except:
-                            # print('Chada hi nhi tha... cheating krta h yeh !! fine lo')
+                            print("##############################")
+                            print('failed to send email')
                             pass
-                    # print(name)
-                    face_names.append(name)
-                    face_uids.append(uid)
-            i += 1
-            process_this_frame = not process_this_frame
+                    except:
+                        pass
+                # print(name)
+                face_names.append(name)
+                face_uids.append(uid)
+        i += 1
+        process_this_frame = not process_this_frame
 
-            # Display the results
-            for (top, right, bottom, left), name, uid in zip(face_locations, face_names, face_uids):
+        # Display the results
+        for (top, right, bottom, left), name, uid in zip(face_locations, face_names, face_uids):
                 # Scale back up face locations since the frame we detected in was scaled to 1/4 size
                 top *= 4
                 right *= 4
@@ -259,9 +268,9 @@ def StationExitView(request, no):
                 cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 0, 255), cv2.FILLED)
                 font = cv2.FONT_HERSHEY_DUPLEX
                 cv2.putText(frame, str(name + ':'+ str(uid)), (left + 6, bottom - 6), font, 1.0, (255, 255, 255), 1)
-        except:
-            # print("Cannot read frame")
-            pass
+        # except:
+        #     # print("Cannot read frame")
+        #     pass
         # Display the resulting image
         cv2.imshow('Video', frame)
 
